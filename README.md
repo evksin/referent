@@ -1,6 +1,7 @@
 # referent
 
 Я изучаю Next.js
+PROJECT.md - описание проекта
 
 ## Установка
 
