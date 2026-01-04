@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import cheerio from 'cheerio'
+import { load } from 'cheerio'
 
 export async function POST(request: NextRequest) {
   try {
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     }
 
     const html = await response.text()
-    const $ = cheerio.load(html)
+    const $ = load(html)
 
     // Извлекаем заголовок
     let title = ''
