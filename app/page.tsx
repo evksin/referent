@@ -90,23 +90,42 @@ export default function Home() {
       return;
     }
 
+    if (!type) {
+      return;
+    }
+
     setActionType(type);
     setIsLoading(true);
     setResult("");
 
-    // Имитация загрузки (здесь будет реальная логика парсинга и AI)
-    setTimeout(() => {
-      const mockResults = {
-        summary:
-          "Это краткое описание статьи. Здесь будет результат анализа статьи с помощью AI.",
-        theses:
-          "• Тезис 1: Основная мысль статьи\n• Тезис 2: Важный момент\n• Тезис 3: Ключевой вывод",
-        telegram:
-          "📰 Заголовок статьи\n\nКраткое описание для Telegram канала...\n\n#новости #статья",
-      };
-      setResult(mockResults[type!]);
+    try {
+      const response = await fetch("/api/ai-process", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          url: url.trim(),
+          actionType: type,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Ошибка при обработке статьи");
+      }
+
+      const data = await response.json();
+      setResult(data.result || "Результат не получен");
+    } catch (error) {
+      setResult(
+        `Ошибка: ${
+          error instanceof Error ? error.message : "Неизвестная ошибка"
+        }`
+      );
+    } finally {
       setIsLoading(false);
-    }, 2000);
+    }
   };
 
   return (
@@ -199,7 +218,12 @@ export default function Home() {
             {isLoading ? (
               <div className="flex flex-col items-center justify-center h-[200px]">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-                <p className="text-gray-600 dark:text-gray-400">Обработка...</p>
+                <p className="text-gray-600 dark:text-gray-400">
+                  {actionType === "summary" && "Анализирую статью..."}
+                  {actionType === "theses" && "Выделяю основные тезисы..."}
+                  {actionType === "telegram" && "Создаю пост..."}
+                  {!actionType && "Обработка..."}
+                </p>
               </div>
             ) : result ? (
               <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700 overflow-auto">
