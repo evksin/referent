@@ -37,11 +37,27 @@ export async function POST(request: NextRequest) {
     const parsedData = await parseResponse.json()
 
     // Проверяем наличие контента
-    if (!parsedData.content || parsedData.content === 'Не найдено') {
+    if (!parsedData.content || parsedData.content === 'Не найдено' || parsedData.content.trim().length === 0) {
       return NextResponse.json(
-        { error: 'Не удалось извлечь контент статьи' },
+        { error: 'Не удалось извлечь контент статьи. Возможно, статья недоступна или имеет нестандартную структуру.' },
         { status: 400 }
       )
+    }
+
+    // Проверяем минимальную длину контента
+    const minContentLength = 50
+    if (parsedData.content.trim().length < minContentLength) {
+      return NextResponse.json(
+        { error: `Контент статьи слишком короткий (менее ${minContentLength} символов). Возможно, это не статья или парсинг не удался.` },
+        { status: 400 }
+      )
+    }
+
+    // Валидация и обрезка контента для AI (максимальная длина ~100k символов для безопасности)
+    const maxContentLength = 100000
+    let contentToProcess = parsedData.content
+    if (contentToProcess.length > maxContentLength) {
+      contentToProcess = contentToProcess.substring(0, maxContentLength) + '\n\n[... контент обрезан из-за большой длины ...]'
     }
 
     // Проверяем наличие API ключа
@@ -53,63 +69,113 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Формируем промпты в зависимости от типа действия
-    const prompts = getPromptsForActionType(actionType, parsedData)
+    // Формируем промпты в зависимости от типа действия (используем обрезанный контент)
+    const prompts = getPromptsForActionType(actionType, {
+      title: parsedData.title,
+      content: contentToProcess,
+    })
     
-    // Вызываем OpenRouter API
-    const openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': request.nextUrl.origin,
-        'X-Title': 'Referent AI Processor',
-      },
-      body: JSON.stringify({
-        model: 'deepseek/deepseek-chat',
-        messages: [
-          {
-            role: 'system',
-            content: prompts.systemPrompt,
-          },
-          {
-            role: 'user',
-            content: prompts.userPrompt,
-          },
-        ],
-        temperature: prompts.temperature,
-      }),
-    })
+    // Создаем AbortController для таймаута
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 120000) // 2 минуты таймаут
 
-    if (!openRouterResponse.ok) {
-      const error = await openRouterResponse.text()
-      console.error('OpenRouter error:', error)
-      return NextResponse.json(
-        { error: `Ошибка OpenRouter API: ${openRouterResponse.statusText}` },
-        { status: openRouterResponse.status }
-      )
+    try {
+      // Вызываем OpenRouter API
+      const openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': request.nextUrl.origin,
+          'X-Title': 'Referent AI Processor',
+        },
+        body: JSON.stringify({
+          model: 'deepseek/deepseek-chat',
+          messages: [
+            {
+              role: 'system',
+              content: prompts.systemPrompt,
+            },
+            {
+              role: 'user',
+              content: prompts.userPrompt,
+            },
+          ],
+          temperature: prompts.temperature,
+        }),
+        signal: controller.signal,
+      })
+
+      clearTimeout(timeoutId)
+
+      if (!openRouterResponse.ok) {
+        let errorMessage = `Ошибка OpenRouter API: ${openRouterResponse.statusText}`
+        
+        // Обработка специфичных ошибок
+        if (openRouterResponse.status === 401) {
+          errorMessage = 'Неверный API ключ OpenRouter. Проверьте OPENROUTER_API_KEY в .env.local'
+        } else if (openRouterResponse.status === 429) {
+          errorMessage = 'Превышен лимит запросов к OpenRouter API. Попробуйте позже.'
+        } else if (openRouterResponse.status === 503) {
+          errorMessage = 'Сервис OpenRouter временно недоступен. Попробуйте позже.'
+        } else {
+          try {
+            const errorData = await openRouterResponse.json()
+            if (errorData.error?.message) {
+              errorMessage = `Ошибка OpenRouter: ${errorData.error.message}`
+            }
+          } catch {
+            // Если не удалось распарсить JSON, используем стандартное сообщение
+          }
+        }
+        
+        console.error('OpenRouter error:', errorMessage, openRouterResponse.status)
+        return NextResponse.json(
+          { error: errorMessage },
+          { status: openRouterResponse.status >= 500 ? 502 : openRouterResponse.status }
+        )
+      }
+
+      const openRouterData = await openRouterResponse.json()
+
+      if (!openRouterData.choices || !openRouterData.choices[0]?.message?.content) {
+        return NextResponse.json(
+          { error: 'Неожиданный формат ответа от OpenRouter' },
+          { status: 500 }
+        )
+      }
+
+      const result = openRouterData.choices[0].message.content.trim()
+
+      // Проверяем, что результат не пустой
+      if (!result || result.length === 0) {
+        return NextResponse.json(
+          { error: 'AI вернул пустой ответ. Попробуйте еще раз или выберите другую статью.' },
+          { status: 500 }
+        )
+      }
+
+      return NextResponse.json({
+        actionType,
+        original: {
+          title: parsedData.title,
+          content: parsedData.content.substring(0, 500) + '...', // Первые 500 символов для справки
+          date: parsedData.date,
+        },
+        result,
+      })
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId)
+      
+      if (fetchError.name === 'AbortError') {
+        return NextResponse.json(
+          { error: 'Превышено время ожидания ответа от AI (более 2 минут). Статья может быть слишком длинной.' },
+          { status: 504 }
+        )
+      }
+      
+      throw fetchError
     }
-
-    const openRouterData = await openRouterResponse.json()
-
-    if (!openRouterData.choices || !openRouterData.choices[0]?.message?.content) {
-      return NextResponse.json(
-        { error: 'Неожиданный формат ответа от OpenRouter' },
-        { status: 500 }
-      )
-    }
-
-    const result = openRouterData.choices[0].message.content
-
-    return NextResponse.json({
-      actionType,
-      original: {
-        title: parsedData.title,
-        content: parsedData.content.substring(0, 500) + '...', // Первые 500 символов для справки
-        date: parsedData.date,
-      },
-      result,
-    })
 
   } catch (error) {
     console.error('AI Process error:', error)
@@ -129,22 +195,57 @@ function getPromptsForActionType(
   switch (actionType) {
     case 'summary':
       return {
-        systemPrompt: 'Ты опытный журналист, который умеет кратко и точно излагать суть статей.',
-        userPrompt: `Прочитай следующую статью и напиши краткое описание на русском языке (2-3 абзаца). Опиши основную тему, ключевые моменты и выводы.\n\n${textToProcess}`,
+        systemPrompt: 'Ты опытный журналист и редактор, специализирующийся на создании кратких и информативных резюме статей. Твоя задача - выделить суть материала, сохранив все важные детали и контекст. Пиши на русском языке, используй ясный и понятный стиль.',
+        userPrompt: `Прочитай следующую статью и создай краткое описание на русском языке.
+
+Требования:
+- Объем: 2-3 абзаца
+- Опиши основную тему и цель статьи
+- Выдели ключевые моменты и аргументы
+- Включи основные выводы или заключения
+- Сохрани важный контекст и факты
+- Пиши связным текстом, не используй списки
+
+Статья:
+${textToProcess}`,
         temperature: 0.5,
       }
 
     case 'theses':
       return {
-        systemPrompt: 'Ты аналитик, который умеет выделять ключевые идеи из текстов.',
-        userPrompt: `Выдели основные тезисы из следующей статьи. Представь их в виде маркированного списка на русском языке. Каждый тезис должен быть кратким и информативным.\n\n${textToProcess}`,
+        systemPrompt: 'Ты профессиональный аналитик и исследователь, который умеет структурировать информацию и выделять ключевые идеи из текстов. Твоя задача - создать четкий и логичный список основных тезисов. Пиши на русском языке.',
+        userPrompt: `Выдели основные тезисы из следующей статьи и представь их в виде маркированного списка на русском языке.
+
+Требования:
+- Используй символ "•" для маркировки каждого тезиса
+- Каждый тезис должен быть кратким (1-2 предложения), но информативным
+- Тезисы должны отражать основные идеи, аргументы и выводы статьи
+- Расположи тезисы в логическом порядке
+- Не дублируй информацию между тезисами
+- Минимум 3 тезиса, максимум 10
+
+Статья:
+${textToProcess}`,
         temperature: 0.3,
       }
 
     case 'telegram':
       return {
-        systemPrompt: 'Ты SMM-специалист, который создает интересные посты для социальных сетей.',
-        userPrompt: `Создай пост для Telegram канала на русском языке на основе следующей статьи. Используй эмодзи, добавь релевантные хештеги. Пост должен быть привлекательным и информативным.\n\n${textToProcess}`,
+        systemPrompt: 'Ты профессиональный SMM-специалист и копирайтер, создающий вирусные и привлекательные посты для Telegram каналов. Ты умеешь балансировать между информативностью и развлекательностью, используя эмодзи, хештеги и правильное форматирование. Пиши на русском языке.',
+        userPrompt: `Создай пост для Telegram канала на русском языке на основе следующей статьи.
+
+Требования:
+- Используй эмодзи для привлечения внимания (но не переборщи)
+- Начни с цепляющего заголовка или вступления
+- Структурируй текст короткими абзацами
+- Добавь релевантные хештеги в конце (3-5 штук)
+- Пост должен быть информативным, но легко читаемым
+- Используй разделители (---) для структуры, если нужно
+- Длина: оптимально для Telegram (не слишком длинно)
+- Сохрани ключевую информацию из статьи
+
+Статья:
+${textToProcess}`,
         temperature: 0.7,
       }
 

@@ -9,78 +9,16 @@ export default function Home() {
   const [actionType, setActionType] = useState<ActionType>(null);
   const [result, setResult] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  const handleParse = async () => {
-    if (!url.trim()) {
-      alert("Пожалуйста, введите URL статьи");
-      return;
-    }
-
-    setIsLoading(true);
-    setResult("");
-    setActionType(null);
-
+  const handleCopy = async () => {
+    if (!result) return;
     try {
-      const response = await fetch("/api/parse", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ url: url.trim() }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Ошибка при парсинге");
-      }
-
-      const data = await response.json();
-      setResult(JSON.stringify(data, null, 2));
+      await navigator.clipboard.writeText(result);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch (error) {
-      setResult(
-        `Ошибка: ${
-          error instanceof Error ? error.message : "Неизвестная ошибка"
-        }`
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleTranslate = async () => {
-    if (!url.trim()) {
-      alert("Пожалуйста, введите URL статьи");
-      return;
-    }
-
-    setIsLoading(true);
-    setResult("");
-    setActionType(null);
-
-    try {
-      const response = await fetch("/api/translate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ url: url.trim() }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Ошибка при переводе");
-      }
-
-      const data = await response.json();
-      setResult(data.translation);
-    } catch (error) {
-      setResult(
-        `Ошибка: ${
-          error instanceof Error ? error.message : "Неизвестная ошибка"
-        }`
-      );
-    } finally {
-      setIsLoading(false);
+      console.error("Failed to copy:", error);
     }
   };
 
@@ -111,18 +49,45 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Ошибка при обработке статьи");
+        let errorMessage = "Ошибка при обработке статьи";
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // Если не удалось распарсить JSON, используем статус
+          if (response.status === 504) {
+            errorMessage =
+              "Превышено время ожидания. Статья может быть слишком длинной.";
+          } else if (response.status === 502) {
+            errorMessage = "Сервис временно недоступен. Попробуйте позже.";
+          } else if (response.status === 429) {
+            errorMessage = "Превышен лимит запросов. Попробуйте позже.";
+          } else {
+            errorMessage = `Ошибка ${response.status}: ${response.statusText}`;
+          }
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
-      setResult(data.result || "Результат не получен");
+
+      if (!data.result || data.result.trim().length === 0) {
+        throw new Error("Получен пустой результат от AI. Попробуйте еще раз.");
+      }
+
+      setResult(data.result);
     } catch (error) {
-      setResult(
-        `Ошибка: ${
-          error instanceof Error ? error.message : "Неизвестная ошибка"
-        }`
-      );
+      const errorMessage =
+        error instanceof Error ? error.message : "Неизвестная ошибка";
+
+      // Проверяем, не связана ли ошибка с сетью
+      if (error instanceof TypeError && error.message.includes("fetch")) {
+        setResult(
+          "Ошибка: Не удалось подключиться к серверу. Проверьте подключение к интернету."
+        );
+      } else {
+        setResult(`Ошибка: ${errorMessage}`);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -156,24 +121,6 @@ export default function Home() {
           />
         </div>
 
-        {/* Кнопки парсинга и перевода */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <button
-            onClick={handleParse}
-            disabled={isLoading}
-            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
-          >
-            Парсить статью
-          </button>
-          <button
-            onClick={handleTranslate}
-            disabled={isLoading}
-            className="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
-          >
-            Перевести статью
-          </button>
-        </div>
-
         {/* Кнопки действий */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <button
@@ -201,19 +148,64 @@ export default function Home() {
 
         {/* Блок результата */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-200 dark:border-gray-700 mt-8">
-          <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-white">
-            {actionType === "summary" && "О чем статья?"}
-            {actionType === "theses" && "Тезисы"}
-            {actionType === "telegram" && "Пост для Telegram"}
-            {!actionType &&
-              (result
-                ? result.startsWith("Ошибка")
-                  ? "Ошибка"
-                  : result.includes('"title"') || result.includes('"date"')
-                  ? "Результат парсинга"
-                  : "Перевод статьи"
-                : "Результат")}
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+              {actionType === "summary" && "О чем статья?"}
+              {actionType === "theses" && "Тезисы"}
+              {actionType === "telegram" && "Пост для Telegram"}
+              {!actionType &&
+                (result
+                  ? result.startsWith("Ошибка")
+                    ? "Ошибка"
+                    : result.includes('"title"') || result.includes('"date"')
+                    ? "Результат парсинга"
+                    : "Перевод статьи"
+                  : "Результат")}
+            </h2>
+            {result && !result.startsWith("Ошибка") && (
+              <button
+                onClick={handleCopy}
+                className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors flex items-center gap-2"
+                title="Копировать результат"
+              >
+                {copied ? (
+                  <>
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                    <span>Скопировано!</span>
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
+                    <span>Копировать</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
           <div className="min-h-[200px]">
             {isLoading ? (
               <div className="flex flex-col items-center justify-center h-[200px]">
@@ -227,9 +219,19 @@ export default function Home() {
               </div>
             ) : result ? (
               <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700 overflow-auto">
-                <pre className="whitespace-pre-wrap text-gray-800 dark:text-gray-200 font-mono text-sm leading-relaxed">
-                  {result}
-                </pre>
+                {actionType === "theses" || actionType === "telegram" ? (
+                  <div className="whitespace-pre-wrap text-gray-800 dark:text-gray-200 font-sans text-base leading-relaxed">
+                    {result}
+                  </div>
+                ) : result.includes('"title"') || result.includes('"date"') ? (
+                  <pre className="whitespace-pre-wrap text-gray-800 dark:text-gray-200 font-mono text-sm leading-relaxed">
+                    {result}
+                  </pre>
+                ) : (
+                  <div className="whitespace-pre-wrap text-gray-800 dark:text-gray-200 font-sans text-base leading-relaxed">
+                    {result}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="flex items-center justify-center h-[200px] text-gray-500 dark:text-gray-400">
