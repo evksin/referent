@@ -47,6 +47,43 @@ export default function Home() {
     }
   };
 
+  const handleTranslate = async () => {
+    if (!url.trim()) {
+      alert("Пожалуйста, введите URL статьи");
+      return;
+    }
+
+    setIsLoading(true);
+    setResult("");
+    setActionType(null);
+
+    try {
+      const response = await fetch("/api/translate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ url: url.trim() }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Ошибка при переводе");
+      }
+
+      const data = await response.json();
+      setResult(data.translation);
+    } catch (error) {
+      setResult(
+        `Ошибка: ${
+          error instanceof Error ? error.message : "Неизвестная ошибка"
+        }`
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleAction = async (type: ActionType) => {
     if (!url.trim()) {
       alert("Пожалуйста, введите URL статьи");
@@ -100,14 +137,21 @@ export default function Home() {
           />
         </div>
 
-        {/* Кнопка парсинга */}
-        <div className="mb-6">
+        {/* Кнопки парсинга и перевода */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <button
             onClick={handleParse}
             disabled={isLoading}
-            className="w-full px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
+            className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
           >
             Парсить статью
+          </button>
+          <button
+            onClick={handleTranslate}
+            disabled={isLoading}
+            className="px-6 py-3 bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
+          >
+            Перевести статью
           </button>
         </div>
 
@@ -142,7 +186,14 @@ export default function Home() {
             {actionType === "summary" && "О чем статья?"}
             {actionType === "theses" && "Тезисы"}
             {actionType === "telegram" && "Пост для Telegram"}
-            {!actionType && (result ? "Результат парсинга" : "Результат")}
+            {!actionType &&
+              (result
+                ? result.startsWith("Ошибка")
+                  ? "Ошибка"
+                  : result.includes('"title"') || result.includes('"date"')
+                  ? "Результат парсинга"
+                  : "Перевод статьи"
+                : "Результат")}
           </h2>
           <div className="min-h-[200px]">
             {isLoading ? (
