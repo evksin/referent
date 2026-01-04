@@ -167,17 +167,17 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 p-4 md:p-8">
+    <main className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 px-4 py-6 md:p-8">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-4xl font-bold text-center mb-2 text-gray-900 dark:text-white">
+        <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-center mb-2 text-gray-900 dark:text-white px-2">
           Referent
         </h1>
-        <p className="text-center mb-8 text-gray-600 dark:text-gray-400">
+        <p className="text-center mb-6 md:mb-8 text-sm sm:text-base text-gray-600 dark:text-gray-400 px-2">
           ИИ переводчик и обработчик страницы в Интернете
         </p>
 
         {/* Поле ввода URL */}
-        <div className="mb-6">
+        <div className="mb-4 md:mb-6">
           <label
             htmlFor="url"
             className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
@@ -190,20 +190,20 @@ export default function Home() {
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="Введите URL статьи, например: https://example.com/article"
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
+            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400 break-all"
           />
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 px-1">
             Укажите ссылку на англоязычную статью
           </p>
         </div>
 
         {/* Кнопки действий */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 mb-6 md:mb-8">
           <button
             onClick={() => handleAction("summary")}
             disabled={isLoading}
             title="Получить краткое описание статьи на русском языке"
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
+            className="w-full px-4 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
           >
             О чем статья?
           </button>
@@ -211,7 +211,7 @@ export default function Home() {
             onClick={() => handleAction("theses")}
             disabled={isLoading}
             title="Выделить основные тезисы статьи в виде маркированного списка"
-            className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
+            className="w-full px-4 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
           >
             Тезисы
           </button>
@@ -219,7 +219,7 @@ export default function Home() {
             onClick={() => handleAction("telegram")}
             disabled={isLoading}
             title="Создать пост для Telegram канала с эмодзи и хештегами"
-            className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
+            className="w-full px-4 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
           >
             Пост для Telegram
           </button>
@@ -227,10 +227,10 @@ export default function Home() {
 
         {/* Блок статуса процесса */}
         {processStatus && (
-          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
-            <div className="flex items-center gap-3">
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 dark:border-blue-400"></div>
-              <p className="text-sm text-blue-700 dark:text-blue-300 font-medium">
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 sm:p-4 mb-4">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-b-2 border-blue-600 dark:border-blue-400 flex-shrink-0"></div>
+              <p className="text-xs sm:text-sm text-blue-700 dark:text-blue-300 font-medium break-words">
                 {processStatus}
               </p>
             </div>
@@ -239,9 +239,11 @@ export default function Home() {
 
         {/* Блок ошибок */}
         {error && (
-          <Alert variant="destructive" className="mb-4">
-            <AlertTitle>Ошибка</AlertTitle>
-            <AlertDescription>{error.message}</AlertDescription>
+          <Alert variant="destructive" className="mb-4 p-3 sm:p-4">
+            <AlertTitle className="text-sm sm:text-base">Ошибка</AlertTitle>
+            <AlertDescription className="text-xs sm:text-sm break-words">
+              {error.message}
+            </AlertDescription>
           </Alert>
         )}
 
@@ -251,11 +253,11 @@ export default function Home() {
             <button
               onClick={handleClear}
               disabled={isLoading}
-              className="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-3 sm:px-4 py-2 text-xs sm:text-sm bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 sm:gap-2"
               title="Очистить все поля и результаты"
             >
               <svg
-                className="w-4 h-4"
+                className="w-3.5 h-3.5 sm:w-4 sm:h-4"
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
@@ -267,7 +269,7 @@ export default function Home() {
                   d="M6 18L18 6M6 6l12 12"
                 />
               </svg>
-              Очистить
+              <span>Очистить</span>
             </button>
           </div>
         )}
@@ -275,10 +277,10 @@ export default function Home() {
         {/* Блок результата */}
         <div
           ref={resultRef}
-          className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-200 dark:border-gray-700 mt-8"
+          className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 sm:p-6 border border-gray-200 dark:border-gray-700 mt-6 sm:mt-8"
         >
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-4">
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-white break-words">
               {actionType === "summary" && "О чем статья?"}
               {actionType === "theses" && "Тезисы"}
               {actionType === "telegram" && "Пост для Telegram"}
@@ -294,13 +296,13 @@ export default function Home() {
             {result && !result.startsWith("Ошибка") && (
               <button
                 onClick={handleCopy}
-                className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors flex items-center gap-2"
+                className="px-3 py-1.5 text-xs sm:text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors flex items-center justify-center gap-1.5 sm:gap-2 self-start sm:self-auto"
                 title="Копировать результат"
               >
                 {copied ? (
                   <>
                     <svg
-                      className="w-4 h-4"
+                      className="w-3.5 h-3.5 sm:w-4 sm:h-4"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -317,7 +319,7 @@ export default function Home() {
                 ) : (
                   <>
                     <svg
-                      className="w-4 h-4"
+                      className="w-3.5 h-3.5 sm:w-4 sm:h-4"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24"
@@ -335,11 +337,11 @@ export default function Home() {
               </button>
             )}
           </div>
-          <div className="min-h-[200px]">
+          <div className="min-h-[150px] sm:min-h-[200px]">
             {isLoading ? (
-              <div className="flex flex-col items-center justify-center h-[200px]">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
-                <p className="text-gray-600 dark:text-gray-400">
+              <div className="flex flex-col items-center justify-center h-[150px] sm:h-[200px] px-2">
+                <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-blue-600 mb-3 sm:mb-4"></div>
+                <p className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 text-center">
                   {actionType === "summary" && "Анализирую статью..."}
                   {actionType === "theses" && "Выделяю основные тезисы..."}
                   {actionType === "telegram" && "Создаю пост..."}
@@ -347,24 +349,26 @@ export default function Home() {
                 </p>
               </div>
             ) : result && !error ? (
-              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700 overflow-auto">
+              <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 sm:p-4 border border-gray-200 dark:border-gray-700 overflow-auto">
                 {actionType === "theses" || actionType === "telegram" ? (
-                  <div className="whitespace-pre-wrap text-gray-800 dark:text-gray-200 font-sans text-base leading-relaxed">
+                  <div className="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200 font-sans text-sm sm:text-base leading-relaxed">
                     {result}
                   </div>
                 ) : result.includes('"title"') || result.includes('"date"') ? (
-                  <pre className="whitespace-pre-wrap text-gray-800 dark:text-gray-200 font-mono text-sm leading-relaxed">
+                  <pre className="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200 font-mono text-xs sm:text-sm leading-relaxed overflow-x-auto">
                     {result}
                   </pre>
                 ) : (
-                  <div className="whitespace-pre-wrap text-gray-800 dark:text-gray-200 font-sans text-base leading-relaxed">
+                  <div className="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200 font-sans text-sm sm:text-base leading-relaxed">
                     {result}
                   </div>
                 )}
               </div>
             ) : (
-              <div className="flex items-center justify-center h-[200px] text-gray-500 dark:text-gray-400">
-                <p>Нажмите на одну из кнопок выше, чтобы получить результат</p>
+              <div className="flex items-center justify-center h-[150px] sm:h-[200px] px-4 text-gray-500 dark:text-gray-400">
+                <p className="text-xs sm:text-sm text-center">
+                  Нажмите на одну из кнопок выше, чтобы получить результат
+                </p>
               </div>
             )}
           </div>
