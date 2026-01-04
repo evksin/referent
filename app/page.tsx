@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 type ActionType = "summary" | "theses" | "telegram" | null;
@@ -15,6 +15,30 @@ export default function Home() {
   const [error, setError] = useState<{ message: string; type?: string } | null>(
     null
   );
+
+  const resultRef = useRef<HTMLDivElement>(null);
+
+  const handleClear = () => {
+    setUrl("");
+    setActionType(null);
+    setResult("");
+    setError(null);
+    setProcessStatus("");
+    setCopied(false);
+    setIsLoading(false);
+  };
+
+  // Автоматическая прокрутка к результатам после успешной генерации
+  useEffect(() => {
+    if (result && !error && !isLoading && resultRef.current) {
+      setTimeout(() => {
+        resultRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 100);
+    }
+  }, [result, error, isLoading]);
 
   const handleCopy = async () => {
     if (!result) return;
@@ -221,8 +245,38 @@ export default function Home() {
           </Alert>
         )}
 
+        {/* Кнопка очистки */}
+        {(url || result || error || actionType) && (
+          <div className="mb-4 flex justify-end">
+            <button
+              onClick={handleClear}
+              disabled={isLoading}
+              className="px-4 py-2 text-sm bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              title="Очистить все поля и результаты"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+              Очистить
+            </button>
+          </div>
+        )}
+
         {/* Блок результата */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-200 dark:border-gray-700 mt-8">
+        <div
+          ref={resultRef}
+          className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-200 dark:border-gray-700 mt-8"
+        >
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
               {actionType === "summary" && "О чем статья?"}
