@@ -10,6 +10,7 @@ export default function Home() {
   const [result, setResult] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [processStatus, setProcessStatus] = useState<string>("");
 
   const handleCopy = async () => {
     if (!result) return;
@@ -35,6 +36,7 @@ export default function Home() {
     setActionType(type);
     setIsLoading(true);
     setResult("");
+    setProcessStatus("Загружаю статью...");
 
     try {
       const response = await fetch("/api/ai-process", {
@@ -69,6 +71,8 @@ export default function Home() {
         throw new Error(errorMessage);
       }
 
+      setProcessStatus("Обрабатываю с помощью AI...");
+
       const data = await response.json();
 
       if (!data.result || data.result.trim().length === 0) {
@@ -76,6 +80,7 @@ export default function Home() {
       }
 
       setResult(data.result);
+      setProcessStatus("");
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Неизвестная ошибка";
@@ -88,6 +93,7 @@ export default function Home() {
       } else {
         setResult(`Ошибка: ${errorMessage}`);
       }
+      setProcessStatus("");
     } finally {
       setIsLoading(false);
     }
@@ -116,9 +122,12 @@ export default function Home() {
             type="url"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://example.com/article"
+            placeholder="Введите URL статьи, например: https://example.com/article"
             className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"
           />
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            Укажите ссылку на англоязычную статью
+          </p>
         </div>
 
         {/* Кнопки действий */}
@@ -126,6 +135,7 @@ export default function Home() {
           <button
             onClick={() => handleAction("summary")}
             disabled={isLoading}
+            title="Получить краткое описание статьи на русском языке"
             className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
           >
             О чем статья?
@@ -133,6 +143,7 @@ export default function Home() {
           <button
             onClick={() => handleAction("theses")}
             disabled={isLoading}
+            title="Выделить основные тезисы статьи в виде маркированного списка"
             className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
           >
             Тезисы
@@ -140,11 +151,24 @@ export default function Home() {
           <button
             onClick={() => handleAction("telegram")}
             disabled={isLoading}
+            title="Создать пост для Telegram канала с эмодзи и хештегами"
             className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
           >
             Пост для Telegram
           </button>
         </div>
+
+        {/* Блок статуса процесса */}
+        {processStatus && (
+          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 dark:border-blue-400"></div>
+              <p className="text-sm text-blue-700 dark:text-blue-300 font-medium">
+                {processStatus}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Блок результата */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-200 dark:border-gray-700 mt-8">
