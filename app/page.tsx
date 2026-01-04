@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 type ActionType = "summary" | "theses" | "telegram" | null;
 
@@ -11,6 +12,9 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [processStatus, setProcessStatus] = useState<string>("");
+  const [error, setError] = useState<{ message: string; type?: string } | null>(
+    null
+  );
 
   const handleCopy = async () => {
     if (!result) return;
@@ -36,6 +40,7 @@ export default function Home() {
     setActionType(type);
     setIsLoading(true);
     setResult("");
+    setError(null);
     setProcessStatus("Загружаю статью...");
 
     try {
@@ -51,24 +56,48 @@ export default function Home() {
       });
 
       if (!response.ok) {
-        let errorMessage = "Ошибка при обработке статьи";
+        let errorData: { error?: string; message?: string; type?: string } = {};
         try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorMessage;
+          errorData = await response.json();
         } catch {
-          // Если не удалось распарсить JSON, используем статус
-          if (response.status === 504) {
-            errorMessage =
-              "Превышено время ожидания. Статья может быть слишком длинной.";
-          } else if (response.status === 502) {
-            errorMessage = "Сервис временно недоступен. Попробуйте позже.";
-          } else if (response.status === 429) {
-            errorMessage = "Превышен лимит запросов. Попробуйте позже.";
-          } else {
-            errorMessage = `Ошибка ${response.status}: ${response.statusText}`;
-          }
+          // Если не удалось распарсить JSON
         }
-        throw new Error(errorMessage);
+
+        // Определяем тип ошибки и сообщение
+        const errorType = errorData.type || errorData.error || "UNKNOWN";
+        let errorMessage = "Произошла ошибка при обработке статьи.";
+
+        // Обработка ошибок загрузки статьи (404, 500, таймаут)
+        if (
+          errorType === "FETCH_ERROR" ||
+          errorType === "NOT_FOUND" ||
+          errorType === "SERVER_ERROR" ||
+          errorType === "TIMEOUT" ||
+          errorType === "NETWORK_ERROR" ||
+          response.status === 404 ||
+          response.status === 408 ||
+          response.status === 502 ||
+          response.status === 503
+        ) {
+          errorMessage = "Не удалось загрузить статью по этой ссылке.";
+        } else if (response.status === 504) {
+          errorMessage =
+            "Превышено время ожидания. Статья может быть слишком длинной.";
+        } else if (response.status === 429) {
+          errorMessage = "Превышен лимит запросов. Попробуйте позже.";
+        } else if (errorData.message) {
+          errorMessage = errorData.message;
+        } else if (response.status === 401) {
+          errorMessage = "Неверный API ключ. Проверьте настройки.";
+        } else if (response.status === 400) {
+          errorMessage =
+            errorData.message || "Неверный запрос. Проверьте URL статьи.";
+        }
+
+        setError({ message: errorMessage, type: errorType });
+        setResult("");
+        setProcessStatus("");
+        return;
       }
 
       setProcessStatus("Обрабатываю с помощью AI...");
@@ -76,23 +105,37 @@ export default function Home() {
       const data = await response.json();
 
       if (!data.result || data.result.trim().length === 0) {
-        throw new Error("Получен пустой результат от AI. Попробуйте еще раз.");
+        setError({
+          message:
+            "Получен пустой результат от AI. Попробуйте еще раз или выберите другую статью.",
+          type: "EMPTY_RESULT",
+        });
+        setResult("");
+        setProcessStatus("");
+        return;
       }
 
       setResult(data.result);
+      setError(null);
       setProcessStatus("");
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Неизвестная ошибка";
-
-      // Проверяем, не связана ли ошибка с сетью
+      // Обработка сетевых ошибок
       if (error instanceof TypeError && error.message.includes("fetch")) {
-        setResult(
-          "Ошибка: Не удалось подключиться к серверу. Проверьте подключение к интернету."
-        );
+        setError({
+          message:
+            "Не удалось подключиться к серверу. Проверьте подключение к интернету.",
+          type: "NETWORK_ERROR",
+        });
       } else {
-        setResult(`Ошибка: ${errorMessage}`);
+        setError({
+          message:
+            error instanceof Error
+              ? error.message
+              : "Произошла неизвестная ошибка.",
+          type: "UNKNOWN",
+        });
       }
+      setResult("");
       setProcessStatus("");
     } finally {
       setIsLoading(false);
@@ -170,6 +213,14 @@ export default function Home() {
           </div>
         )}
 
+        {/* Блок ошибок */}
+        {error && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertTitle>Ошибка</AlertTitle>
+            <AlertDescription>{error.message}</AlertDescription>
+          </Alert>
+        )}
+
         {/* Блок результата */}
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-200 dark:border-gray-700 mt-8">
           <div className="flex items-center justify-between mb-4">
@@ -241,7 +292,7 @@ export default function Home() {
                   {!actionType && "Обработка..."}
                 </p>
               </div>
-            ) : result ? (
+            ) : result && !error ? (
               <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 border border-gray-200 dark:border-gray-700 overflow-auto">
                 {actionType === "theses" || actionType === "telegram" ? (
                   <div className="whitespace-pre-wrap text-gray-800 dark:text-gray-200 font-sans text-base leading-relaxed">

@@ -31,7 +31,15 @@ export async function POST(request: NextRequest) {
 
     if (!parseResponse.ok) {
       const error = await parseResponse.json()
-      throw new Error(error.error || 'Ошибка при парсинге статьи')
+      // Возвращаем структурированную ошибку
+      return NextResponse.json(
+        { 
+          error: error.error || 'FETCH_ERROR',
+          message: error.message || 'Не удалось загрузить статью по этой ссылке.',
+          type: 'FETCH_ERROR'
+        },
+        { status: parseResponse.status }
+      )
     }
 
     const parsedData = await parseResponse.json()
@@ -151,7 +159,11 @@ export async function POST(request: NextRequest) {
       // Проверяем, что результат не пустой
       if (!result || result.length === 0) {
         return NextResponse.json(
-          { error: 'AI вернул пустой ответ. Попробуйте еще раз или выберите другую статью.' },
+          { 
+            error: 'EMPTY_RESULT',
+            message: 'Получен пустой результат от AI. Попробуйте еще раз или выберите другую статью.',
+            type: 'EMPTY_RESULT'
+          },
           { status: 500 }
         )
       }
@@ -182,7 +194,11 @@ export async function POST(request: NextRequest) {
       
       if (fetchError.name === 'AbortError') {
         return NextResponse.json(
-          { error: 'Превышено время ожидания ответа от AI (более 2 минут). Статья может быть слишком длинной.' },
+          { 
+            error: 'TIMEOUT',
+            message: 'Превышено время ожидания ответа от AI (более 2 минут). Статья может быть слишком длинной.',
+            type: 'TIMEOUT'
+          },
           { status: 504 }
         )
       }
@@ -192,8 +208,27 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('AI Process error:', error)
+    
+    // Обрабатываем различные типы ошибок
+    if (error instanceof Error) {
+      if (error.message.includes('fetch') || error.message.includes('network')) {
+        return NextResponse.json(
+          { 
+            error: 'NETWORK_ERROR',
+            message: 'Не удалось подключиться к серверу. Проверьте подключение к интернету.',
+            type: 'NETWORK_ERROR'
+          },
+          { status: 503 }
+        )
+      }
+    }
+    
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Unknown error' },
+      { 
+        error: 'UNKNOWN_ERROR',
+        message: 'Произошла неизвестная ошибка при обработке статьи.',
+        type: 'UNKNOWN_ERROR'
+      },
       { status: 500 }
     )
   }
