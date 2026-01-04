@@ -73,6 +73,7 @@ export async function POST(request: NextRequest) {
     const prompts = getPromptsForActionType(actionType, {
       title: parsedData.title,
       content: contentToProcess,
+      url: url, // Передаем URL для добавления ссылки на источник
     })
     
     // Создаем AbortController для таймаута
@@ -145,7 +146,7 @@ export async function POST(request: NextRequest) {
         )
       }
 
-      const result = openRouterData.choices[0].message.content.trim()
+      let result = openRouterData.choices[0].message.content.trim()
 
       // Проверяем, что результат не пустой
       if (!result || result.length === 0) {
@@ -153,6 +154,18 @@ export async function POST(request: NextRequest) {
           { error: 'AI вернул пустой ответ. Попробуйте еще раз или выберите другую статью.' },
           { status: 500 }
         )
+      }
+
+      // Для поста Telegram добавляем ссылку на источник, если её еще нет
+      if (actionType === 'telegram') {
+        const sourceLink = `\n\n🔗 Источник: ${url}`
+        // Проверяем, не добавлена ли уже ссылка AI
+        if (!result.includes(url) && !result.toLowerCase().includes('источник:')) {
+          result = result + sourceLink
+        } else if (!result.includes(url)) {
+          // Если есть упоминание источника, но без ссылки, добавляем URL
+          result = result.replace(/источник:?\s*/i, `Источник: ${url}`)
+        }
       }
 
       return NextResponse.json({
@@ -188,7 +201,7 @@ export async function POST(request: NextRequest) {
 
 function getPromptsForActionType(
   actionType: ActionType,
-  parsedData: { title: string; content: string }
+  parsedData: { title: string; content: string; url?: string }
 ): { systemPrompt: string; userPrompt: string; temperature: number } {
   const textToProcess = `Заголовок: ${parsedData.title}\n\n${parsedData.content}`
 
@@ -243,9 +256,12 @@ ${textToProcess}`,
 - Используй разделители (---) для структуры, если нужно
 - Длина: оптимально для Telegram (не слишком длинно)
 - Сохрани ключевую информацию из статьи
+- В самом конце поста обязательно добавь ссылку на источник в формате: "Источник: [название статьи](${parsedData.url})" или "🔗 Источник: ${parsedData.url}"
 
 Статья:
-${textToProcess}`,
+${textToProcess}
+
+URL источника: ${parsedData.url}`,
         temperature: 0.7,
       }
 
