@@ -130,6 +130,25 @@ export async function POST(request: NextRequest) {
     console.log("Sending request to AI Horde with prompt:", imagePrompt.substring(0, 100) + "...");
     
     // Шаг 2.1: Создаем запрос на генерацию
+    // Формат запроса для AI Horde API v2
+    const requestBody = {
+      prompt: imagePrompt,
+      params: {
+        width: 512,
+        height: 512,
+        steps: 20,
+        n: 1,
+        sampler_name: "k_euler",
+        cfg_scale: 7.5,
+      },
+      // Не указываем models, чтобы использовать любую доступную модель
+      // nsfw: false, // По умолчанию false
+      // trusted_workers: false, // По умолчанию false
+      // slow_workers: true, // Разрешить медленных воркеров для ускорения
+    };
+    
+    console.log("AI Horde request body:", JSON.stringify(requestBody, null, 2));
+    
     const generateResponse = await fetch(
       "https://aihorde.net/api/v2/generate/async",
       {
@@ -138,29 +157,33 @@ export async function POST(request: NextRequest) {
           "Content-Type": "application/json",
           "apikey": aiHordeApiKey,
         },
-        body: JSON.stringify({
-          prompt: imagePrompt,
-          params: {
-            width: 512,
-            height: 512,
-            steps: 20,
-            n: 1,
-          },
-          models: ["stable_diffusion"], // Можно указать конкретные модели или оставить пустым
-        }),
+        body: JSON.stringify(requestBody),
       }
     );
+    
+    console.log("AI Horde generate response status:", generateResponse.status);
 
     if (!generateResponse.ok) {
       let errorMessage = `Ошибка AI Horde API: ${generateResponse.statusText}`;
       
       try {
-        const errorData = await generateResponse.json();
-        if (errorData.message) {
-          errorMessage = `Ошибка AI Horde: ${errorData.message}`;
+        const errorText = await generateResponse.text();
+        console.error("AI Horde error response:", errorText);
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          if (errorData.message) {
+            errorMessage = `Ошибка AI Horde: ${errorData.message}`;
+          } else if (errorData.error) {
+            errorMessage = `Ошибка AI Horde: ${errorData.error}`;
+          }
+        } catch {
+          if (errorText && errorText.length < 500) {
+            errorMessage = `Ошибка AI Horde: ${errorText}`;
+          }
         }
       } catch {
-        // Если не удалось распарсить JSON
+        // Если не удалось прочитать ответ
       }
 
       return NextResponse.json(
@@ -174,12 +197,14 @@ export async function POST(request: NextRequest) {
     }
 
     const generateData = await generateResponse.json();
+    console.log("AI Horde generate data:", JSON.stringify(generateData, null, 2));
     
     if (!generateData.id) {
+      console.error("No ID in generate response:", generateData);
       return NextResponse.json(
         {
           error: "Не удалось получить ID генерации от AI Horde.",
-          message: "Не удалось получить ID генерации от AI Horde.",
+          message: `Не удалось получить ID генерации от AI Horde. Ответ: ${JSON.stringify(generateData)}`,
           type: "AIHORDE_ERROR",
         },
         { status: 500 }
@@ -221,6 +246,7 @@ export async function POST(request: NextRequest) {
       }
 
       statusData = await statusResponse.json();
+      console.log(`AI Horde status check (${Math.floor((Date.now() - startTime) / 1000)}s):`, JSON.stringify(statusData, null, 2));
 
       if (statusData.done === true) {
         generationComplete = true;
@@ -228,14 +254,21 @@ export async function POST(request: NextRequest) {
       }
 
       if (statusData.faulted === true) {
+        console.error("Generation faulted:", statusData);
         return NextResponse.json(
           {
             error: "Генерация изображения завершилась с ошибкой.",
-            message: "Генерация изображения в AI Horde завершилась с ошибкой.",
+            message: `Генерация изображения в AI Horde завершилась с ошибкой: ${JSON.stringify(statusData)}`,
             type: "AIHORDE_ERROR",
           },
           { status: 500 }
         );
+      }
+      
+      // Проверяем, есть ли уже готовые изображения
+      if (statusData.finished && statusData.finished > 0) {
+        generationComplete = true;
+        break;
       }
     }
 
@@ -273,12 +306,14 @@ export async function POST(request: NextRequest) {
     }
 
     const resultData = await resultResponse.json();
+    console.log("AI Horde result data:", JSON.stringify(resultData, null, 2));
 
     if (!resultData.generations || resultData.generations.length === 0) {
+      console.error("No generations in result:", resultData);
       return NextResponse.json(
         {
           error: "Не удалось получить изображение от AI Horde.",
-          message: "Генерация завершена, но изображение не получено.",
+          message: `Генерация завершена, но изображение не получено. Ответ: ${JSON.stringify(resultData)}`,
           type: "AIHORDE_ERROR",
         },
         { status: 500 }
@@ -287,8 +322,9 @@ export async function POST(request: NextRequest) {
 
     // Получаем первое изображение из результата
     const firstGeneration = resultData.generations[0];
+    console.log("First generation:", JSON.stringify(firstGeneration, null, 2));
     
-    if (!firstGeneration.img) {
+    if (!firstGeneration) {
       return NextResponse.json(
         {
           error: "Изображение не найдено в результате генерации.",
@@ -299,9 +335,45 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // AI Horde возвращает изображение в base64 формате
-    const base64Image = firstGeneration.img;
-    const imageUrl = `data:image/png;base64,${base64Image}`;
+    // AI Horde может возвращать изображение в base64 или как URL
+    let imageUrl: string;
+    
+    if (firstGeneration.img) {
+      // Если есть base64 изображение
+      imageUrl = `data:image/png;base64,${firstGeneration.img}`;
+    } else if (firstGeneration.url) {
+      // Если есть URL изображения, загружаем его и конвертируем в base64
+      try {
+        const imageResponse = await fetch(firstGeneration.url);
+        if (!imageResponse.ok) {
+          throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
+        }
+        const imageBlob = await imageResponse.blob();
+        const arrayBuffer = await imageBlob.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const base64Image = buffer.toString("base64");
+        imageUrl = `data:image/png;base64,${base64Image}`;
+      } catch (fetchError) {
+        console.error("Error fetching image from URL:", fetchError);
+        return NextResponse.json(
+          {
+            error: "Ошибка при загрузке изображения по URL.",
+            message: "Не удалось загрузить изображение по URL от AI Horde.",
+            type: "IMAGE_FETCH_ERROR",
+          },
+          { status: 500 }
+        );
+      }
+    } else {
+      return NextResponse.json(
+        {
+          error: "Изображение не найдено в результате генерации.",
+          message: "В результате генерации нет ни base64, ни URL изображения.",
+          type: "AIHORDE_ERROR",
+        },
+        { status: 500 }
+      );
+    }
 
     console.log("Image generated successfully via AI Horde");
 
