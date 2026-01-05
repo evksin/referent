@@ -20,23 +20,14 @@ export async function POST(request: NextRequest) {
 
     // Проверяем наличие API ключей
     const openRouterApiKey = process.env.OPENROUTER_API_KEY;
-    const huggingFaceApiKey = process.env.HUGGINGFACE_API_KEY;
+    // AI Horde API ключ (можно использовать "0000000000" для анонимного доступа)
+    const aiHordeApiKey = process.env.AIHORDE_API_KEY || "0000000000";
 
     if (!openRouterApiKey) {
       return NextResponse.json(
         {
           error: "API_KEY_MISSING",
           message: "OPENROUTER_API_KEY не настроен в .env.local",
-        },
-        { status: 500 }
-      );
-    }
-
-    if (!huggingFaceApiKey) {
-      return NextResponse.json(
-        {
-          error: "API_KEY_MISSING",
-          message: "HUGGINGFACE_API_KEY не настроен в .env.local",
         },
         { status: 500 }
       );
@@ -134,231 +125,190 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Шаг 2: Генерируем изображение через Hugging Face
-    // Используем Router API (api-inference больше не поддерживается)
-    console.log("Sending request to Hugging Face with prompt:", imagePrompt.substring(0, 100) + "...");
+    // Шаг 2: Генерируем изображение через AI Horde
+    // AI Horde использует асинхронный API
+    console.log("Sending request to AI Horde with prompt:", imagePrompt.substring(0, 100) + "...");
     
-    // Пробуем несколько моделей по очереди, если одна недоступна
-    const models = [
-      "runwayml/stable-diffusion-v1-5",
-      "stabilityai/stable-diffusion-2-1",
-      "CompVis/stable-diffusion-v1-4",
-    ];
-    
-    let huggingFaceResponse: Response | null = null;
-    let lastError: string = "";
-    
-    for (const model of models) {
+    // Шаг 2.1: Создаем запрос на генерацию
+    const generateResponse = await fetch(
+      "https://aihorde.net/api/v2/generate/async",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": aiHordeApiKey,
+        },
+        body: JSON.stringify({
+          prompt: imagePrompt,
+          params: {
+            width: 512,
+            height: 512,
+            steps: 20,
+            n: 1,
+          },
+          models: ["stable_diffusion"], // Можно указать конкретные модели или оставить пустым
+        }),
+      }
+    );
+
+    if (!generateResponse.ok) {
+      let errorMessage = `Ошибка AI Horde API: ${generateResponse.statusText}`;
+      
       try {
-        console.log(`Trying model: ${model}`);
-        huggingFaceResponse = await fetch(
-          `https://router.huggingface.co/models/${model}`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${huggingFaceApiKey}`,
-            },
-            body: JSON.stringify({
-              inputs: imagePrompt,
-            }),
-          }
-        );
-
-        // Если модель загружается (503), ждем и повторяем запрос
-        if (huggingFaceResponse.status === 503) {
-          console.log(`Model ${model} is loading, waiting 10 seconds...`);
-          await new Promise(resolve => setTimeout(resolve, 10000));
-          
-          huggingFaceResponse = await fetch(
-            `https://router.huggingface.co/models/${model}`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${huggingFaceApiKey}`,
-              },
-              body: JSON.stringify({
-                inputs: imagePrompt,
-              }),
-            }
-          );
+        const errorData = await generateResponse.json();
+        if (errorData.message) {
+          errorMessage = `Ошибка AI Horde: ${errorData.message}`;
         }
-
-        // Если запрос успешен, выходим из цикла
-        if (huggingFaceResponse.ok) {
-          console.log(`Successfully using model: ${model}`);
-          break;
-        }
-
-        // Если 404, пробуем следующую модель
-        if (huggingFaceResponse.status === 404) {
-          console.log(`Model ${model} not found, trying next...`);
-          const errorText = await huggingFaceResponse.text();
-          lastError = errorText;
-          continue;
-        }
-
-        // Для других ошибок тоже пробуем следующую модель
-        if (!huggingFaceResponse.ok) {
-          console.log(`Model ${model} returned error ${huggingFaceResponse.status}, trying next...`);
-          const errorText = await huggingFaceResponse.text();
-          lastError = errorText;
-          continue;
-        }
-      } catch (error) {
-        console.error(`Error with model ${model}:`, error);
-        lastError = error instanceof Error ? error.message : "Unknown error";
-        continue;
+      } catch {
+        // Если не удалось распарсить JSON
       }
-    }
-
-    // Если все модели не сработали
-    if (!huggingFaceResponse || !huggingFaceResponse.ok) {
-      throw new Error(
-        `Не удалось использовать ни одну из моделей. Последняя ошибка: ${lastError || "Модели недоступны"}`
-      );
-    }
-
-    // Проверяем Content-Type ответа
-    const contentType = huggingFaceResponse.headers.get("content-type");
-    console.log("Hugging Face response status:", huggingFaceResponse.status);
-    console.log("Hugging Face response content-type:", contentType);
-
-    if (!huggingFaceResponse.ok) {
-      let errorMessage = `Ошибка Hugging Face API: ${huggingFaceResponse.statusText}`;
-
-      if (huggingFaceResponse.status === 401 || huggingFaceResponse.status === 403) {
-        errorMessage =
-          "Неверный API ключ Hugging Face. Проверьте HUGGINGFACE_API_KEY в .env.local";
-      } else if (huggingFaceResponse.status === 429) {
-        errorMessage =
-          "Превышен лимит запросов к Hugging Face API. Попробуйте позже.";
-      } else if (huggingFaceResponse.status === 503) {
-        // Модель может быть загружена, нужно подождать
-        errorMessage =
-          "Модель Hugging Face загружается. Попробуйте через несколько секунд.";
-      } else if (huggingFaceResponse.status === 404) {
-        errorMessage =
-          "Модель не найдена или недоступна через Router API. Проверьте название модели и доступность API ключа.";
-      } else {
-        try {
-          // Пытаемся прочитать как JSON
-          const errorText = await huggingFaceResponse.text();
-          console.error("Hugging Face error response:", errorText);
-          
-          try {
-            const errorData = JSON.parse(errorText);
-            if (errorData.error) {
-              errorMessage = `Ошибка Hugging Face: ${errorData.error}`;
-            } else if (errorData.message) {
-              errorMessage = `Ошибка Hugging Face: ${errorData.message}`;
-            }
-          } catch {
-            // Если не JSON, используем текст как есть
-            if (errorText && errorText.length < 200) {
-              errorMessage = `Ошибка Hugging Face: ${errorText}`;
-            }
-          }
-        } catch (e) {
-          console.error("Error parsing Hugging Face error:", e);
-        }
-      }
-
-      // Не возвращаем 404 от Hugging Face как 404 для нашего API
-      // Вместо этого возвращаем 500 с понятным сообщением
-      const httpStatus = huggingFaceResponse.status === 404 
-        ? 500  // 404 от Hugging Face = ошибка конфигурации, возвращаем 500
-        : huggingFaceResponse.status >= 500 
-        ? 502 
-        : 500; // Другие ошибки тоже возвращаем как 500
 
       return NextResponse.json(
-        { 
+        {
           error: errorMessage,
           message: errorMessage,
-          type: "HUGGINGFACE_ERROR"
+          type: "AIHORDE_ERROR",
         },
-        {
-          status: httpStatus,
-        }
+        { status: generateResponse.status >= 500 ? 502 : generateResponse.status }
       );
     }
 
-    // Проверяем, что ответ - это изображение, а не JSON с ошибкой
-    if (contentType && contentType.includes("application/json")) {
-      // Это JSON, вероятно ошибка
-      try {
-        const errorData = await huggingFaceResponse.json();
-        console.error("Hugging Face returned JSON instead of image:", errorData);
-        
-        let errorMessage = "Не удалось сгенерировать изображение.";
-        if (errorData.error) {
-          errorMessage = `Ошибка Hugging Face: ${errorData.error}`;
-        } else if (errorData.message) {
-          errorMessage = `Ошибка Hugging Face: ${errorData.message}`;
-        }
-        
-        return NextResponse.json(
-          {
-            error: errorMessage,
-            message: errorMessage,
-            type: "IMAGE_GENERATION_ERROR",
-          },
-          { status: 500 }
-        );
-      } catch (e) {
-        console.error("Error parsing Hugging Face JSON response:", e);
-        return NextResponse.json(
-          {
-            error: "Неожиданный формат ответа от Hugging Face API.",
-            message: "Неожиданный формат ответа от Hugging Face API.",
-            type: "UNEXPECTED_RESPONSE",
-          },
-          { status: 500 }
-        );
-      }
-    }
-
-    // Получаем изображение как blob
-    try {
-      const imageBlob = await huggingFaceResponse.blob();
-      
-      // Проверяем размер blob (должен быть больше 0)
-      if (imageBlob.size === 0) {
-        return NextResponse.json(
-          {
-            error: "Получено пустое изображение от Hugging Face.",
-            message: "Получено пустое изображение от Hugging Face.",
-            type: "EMPTY_IMAGE",
-          },
-          { status: 500 }
-        );
-      }
-
-      // Конвертируем blob в base64 для передачи клиенту
-      const arrayBuffer = await imageBlob.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      const base64Image = buffer.toString("base64");
-      const imageUrl = `data:image/png;base64,${base64Image}`;
-      
-      console.log("Image generated successfully, size:", imageBlob.size, "bytes");
-
-      return NextResponse.json({
-        imageUrl,
-        prompt: imagePrompt,
-      });
-    } catch (blobError) {
-      console.error("Error processing image blob:", blobError);
+    const generateData = await generateResponse.json();
+    
+    if (!generateData.id) {
       return NextResponse.json(
         {
-          error: "Ошибка при обработке изображения.",
-          message: "Ошибка при обработке изображения от Hugging Face.",
-          type: "IMAGE_PROCESSING_ERROR",
+          error: "Не удалось получить ID генерации от AI Horde.",
+          message: "Не удалось получить ID генерации от AI Horde.",
+          type: "AIHORDE_ERROR",
         },
         { status: 500 }
       );
     }
+
+    const generationId = generateData.id;
+    console.log("AI Horde generation ID:", generationId);
+
+    // Шаг 2.2: Ожидаем завершения генерации (проверяем статус)
+    const maxWaitTime = 120000; // 2 минуты максимум
+    const checkInterval = 3000; // Проверяем каждые 3 секунды
+    const startTime = Date.now();
+    let generationComplete = false;
+    let statusData: any = null;
+
+    while (!generationComplete && Date.now() - startTime < maxWaitTime) {
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+
+      const statusResponse = await fetch(
+        `https://aihorde.net/api/v2/generate/check/${generationId}`,
+        {
+          method: "GET",
+          headers: {
+            "apikey": aiHordeApiKey,
+          },
+        }
+      );
+
+      if (!statusResponse.ok) {
+        return NextResponse.json(
+          {
+            error: "Ошибка при проверке статуса генерации.",
+            message: "Ошибка при проверке статуса генерации в AI Horde.",
+            type: "AIHORDE_ERROR",
+          },
+          { status: 500 }
+        );
+      }
+
+      statusData = await statusResponse.json();
+
+      if (statusData.done === true) {
+        generationComplete = true;
+        break;
+      }
+
+      if (statusData.faulted === true) {
+        return NextResponse.json(
+          {
+            error: "Генерация изображения завершилась с ошибкой.",
+            message: "Генерация изображения в AI Horde завершилась с ошибкой.",
+            type: "AIHORDE_ERROR",
+          },
+          { status: 500 }
+        );
+      }
+    }
+
+    if (!generationComplete) {
+      return NextResponse.json(
+        {
+          error: "Превышено время ожидания генерации изображения.",
+          message: "Превышено время ожидания генерации изображения в AI Horde (более 2 минут).",
+          type: "TIMEOUT",
+        },
+        { status: 504 }
+      );
+    }
+
+    // Шаг 2.3: Получаем результат генерации
+    const resultResponse = await fetch(
+      `https://aihorde.net/api/v2/generate/status/${generationId}`,
+      {
+        method: "GET",
+        headers: {
+          "apikey": aiHordeApiKey,
+        },
+      }
+    );
+
+    if (!resultResponse.ok) {
+      return NextResponse.json(
+        {
+          error: "Ошибка при получении результата генерации.",
+          message: "Ошибка при получении результата генерации от AI Horde.",
+          type: "AIHORDE_ERROR",
+        },
+        { status: 500 }
+      );
+    }
+
+    const resultData = await resultResponse.json();
+
+    if (!resultData.generations || resultData.generations.length === 0) {
+      return NextResponse.json(
+        {
+          error: "Не удалось получить изображение от AI Horde.",
+          message: "Генерация завершена, но изображение не получено.",
+          type: "AIHORDE_ERROR",
+        },
+        { status: 500 }
+      );
+    }
+
+    // Получаем первое изображение из результата
+    const firstGeneration = resultData.generations[0];
+    
+    if (!firstGeneration.img) {
+      return NextResponse.json(
+        {
+          error: "Изображение не найдено в результате генерации.",
+          message: "Изображение не найдено в результате генерации от AI Horde.",
+          type: "AIHORDE_ERROR",
+        },
+        { status: 500 }
+      );
+    }
+
+    // AI Horde возвращает изображение в base64 формате
+    const base64Image = firstGeneration.img;
+    const imageUrl = `data:image/png;base64,${base64Image}`;
+
+    console.log("Image generated successfully via AI Horde");
+
+    return NextResponse.json({
+      imageUrl,
+      prompt: imagePrompt,
+    });
   } catch (error) {
     console.error("Illustration generation error:", error);
 
