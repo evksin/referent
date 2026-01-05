@@ -7,6 +7,8 @@ type ActionType = "summary" | "theses" | "telegram" | null;
 
 export default function Home() {
   const [url, setUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [fileName, setFileName] = useState("");
   const [actionType, setActionType] = useState<ActionType>(null);
   const [result, setResult] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -17,15 +19,44 @@ export default function Home() {
   );
 
   const resultRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleClear = () => {
     setUrl("");
+    setFile(null);
+    setFileName("");
     setActionType(null);
     setResult("");
     setError(null);
     setProcessStatus("");
     setCopied(false);
     setIsLoading(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = e.target.files?.[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      setFileName(selectedFile.name);
+      setError(null);
+      // Очищаем URL при выборе файла
+      setUrl("");
+    }
+  };
+
+  const handleUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setUrl(e.target.value);
+    // Очищаем файл при вводе URL
+    if (file) {
+      setFile(null);
+      setFileName("");
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
   };
 
   // Автоматическая прокрутка к результатам после успешной генерации
@@ -52,8 +83,12 @@ export default function Home() {
   };
 
   const handleAction = async (type: ActionType) => {
-    if (!url.trim()) {
-      alert("Пожалуйста, введите URL статьи");
+    // Проверка: должен быть либо URL, либо файл
+    if (!url.trim() && !file) {
+      setError({
+        message: "Пожалуйста, либо загрузите файл, либо введите URL статьи.",
+        type: "VALIDATION_ERROR",
+      });
       return;
     }
 
@@ -65,16 +100,74 @@ export default function Home() {
     setIsLoading(true);
     setResult("");
     setError(null);
-    setProcessStatus("Загружаю статью...");
+    setProcessStatus(file ? "Обрабатываю файл..." : "Загружаю статью...");
+
+    let parsedData: { title: string; content: string; date: string };
 
     try {
+      // Если загружен файл, обрабатываем его
+      if (file) {
+        setProcessStatus("Извлекаю текст из файла...");
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const fileResponse = await fetch("/api/process-file", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!fileResponse.ok) {
+          const errorData = await fileResponse.json();
+          throw new Error(errorData.message || "Ошибка при обработке файла");
+        }
+
+        parsedData = await fileResponse.json();
+      } else {
+        // Если указан URL, парсим статью
+        setProcessStatus("Загружаю статью...");
+
+        const parseResponse = await fetch("/api/parse", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ url: url.trim() }),
+        });
+
+        if (!parseResponse.ok) {
+          const errorData = await parseResponse.json();
+          throw new Error(errorData.message || "Ошибка при парсинге статьи");
+        }
+
+        parsedData = await parseResponse.json();
+      }
+
+      // Проверяем наличие контента
+      if (
+        !parsedData.content ||
+        parsedData.content === "Не найдено" ||
+        parsedData.content.trim().length === 0
+      ) {
+        throw new Error(
+          "Не удалось извлечь контент. Файл может быть пустым или поврежденным."
+        );
+      }
+
+      // Отправляем на обработку AI
+      setProcessStatus("Обрабатываю с помощью AI...");
+
       const response = await fetch("/api/ai-process", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          url: url.trim(),
+          parsedData: {
+            title: parsedData.title,
+            content: parsedData.content,
+            date: parsedData.date,
+          },
           actionType: type,
         }),
       });
@@ -143,7 +236,7 @@ export default function Home() {
       setError(null);
       setProcessStatus("");
     } catch (error) {
-      // Обработка сетевых ошибок
+      // Обработка ошибок
       if (error instanceof TypeError && error.message.includes("fetch")) {
         setError({
           message:
@@ -151,12 +244,39 @@ export default function Home() {
           type: "NETWORK_ERROR",
         });
       } else {
+        // Обработка ошибок файлов и других ошибок
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "Произошла неизвестная ошибка.";
+
+        // Определяем тип ошибки на основе сообщения
+        let errorType = "UNKNOWN";
+        if (
+          errorMessage.includes("Неподдерживаемый формат") ||
+          errorMessage.includes("UNSUPPORTED_FORMAT")
+        ) {
+          errorType = "UNSUPPORTED_FORMAT";
+        } else if (
+          errorMessage.includes("Размер файла") ||
+          errorMessage.includes("FILE_TOO_LARGE")
+        ) {
+          errorType = "FILE_TOO_LARGE";
+        } else if (
+          errorMessage.includes("не удалось извлечь") ||
+          errorMessage.includes("EMPTY_CONTENT")
+        ) {
+          errorType = "EMPTY_CONTENT";
+        } else if (
+          errorMessage.includes("не удалось обработать") ||
+          errorMessage.includes("PARSE_ERROR")
+        ) {
+          errorType = "PARSE_ERROR";
+        }
+
         setError({
-          message:
-            error instanceof Error
-              ? error.message
-              : "Произошла неизвестная ошибка.",
-          type: "UNKNOWN",
+          message: errorMessage,
+          type: errorType,
         });
       }
       setResult("");
@@ -176,6 +296,40 @@ export default function Home() {
           ИИ переводчик и обработчик страницы в Интернете
         </p>
 
+        {/* Поле загрузки файла */}
+        <div className="mb-4 md:mb-6">
+          <label
+            htmlFor="file"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+          >
+            Загрузить файл с ПК
+          </label>
+          <input
+            id="file"
+            ref={fileInputRef}
+            type="file"
+            accept=".doc,.docx,.pdf,.txt,.xls,.xlsx,.jpg,.jpeg,.png"
+            onChange={handleFileChange}
+            className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:border-gray-600 dark:text-white file:mr-4 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 dark:file:bg-gray-600 dark:file:text-gray-200"
+          />
+          {fileName && (
+            <p className="mt-2 text-xs text-green-600 dark:text-green-400 px-1">
+              Выбран файл: {fileName}
+            </p>
+          )}
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 px-1">
+            Поддерживаемые форматы: .doc, .docx, .pdf, .txt, .xls, .xlsx, .jpg,
+            .jpeg, .png
+          </p>
+        </div>
+
+        {/* Разделитель */}
+        <div className="mb-4 md:mb-6 flex items-center gap-4">
+          <div className="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
+          <span className="text-xs text-gray-500 dark:text-gray-400">или</span>
+          <div className="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
+        </div>
+
         {/* Поле ввода URL */}
         <div className="mb-4 md:mb-6">
           <label
@@ -188,7 +342,7 @@ export default function Home() {
             id="url"
             type="url"
             value={url}
-            onChange={(e) => setUrl(e.target.value)}
+            onChange={handleUrlChange}
             placeholder="Введите URL статьи, например: https://example.com/article"
             className="w-full px-3 sm:px-4 py-2.5 sm:py-3 text-sm sm:text-base border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400 break-all"
           />
@@ -248,7 +402,7 @@ export default function Home() {
         )}
 
         {/* Кнопка очистки */}
-        {(url || result || error || actionType) && (
+        {(url || file || result || error || actionType) && (
           <div className="mb-4 flex justify-end">
             <button
               onClick={handleClear}
