@@ -135,12 +135,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Шаг 2: Генерируем изображение через Hugging Face
-    // Используем стандартный Inference API (router API может быть недоступен)
+    // Используем новый Router API (api-inference больше не поддерживается)
     console.log("Sending request to Hugging Face with prompt:", imagePrompt.substring(0, 100) + "...");
     
-    // Пробуем сначала стандартный Inference API
+    // Используем Router API с правильным форматом
     let huggingFaceResponse = await fetch(
-      "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1",
+      "https://router.huggingface.co/models/stabilityai/stable-diffusion-2-1",
       {
         method: "POST",
         headers: {
@@ -159,7 +159,7 @@ export async function POST(request: NextRequest) {
       await new Promise(resolve => setTimeout(resolve, 10000));
       
       huggingFaceResponse = await fetch(
-        "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1",
+        "https://router.huggingface.co/models/stabilityai/stable-diffusion-2-1",
         {
           method: "POST",
           headers: {
@@ -191,6 +191,9 @@ export async function POST(request: NextRequest) {
         // Модель может быть загружена, нужно подождать
         errorMessage =
           "Модель Hugging Face загружается. Попробуйте через несколько секунд.";
+      } else if (huggingFaceResponse.status === 404) {
+        errorMessage =
+          "Модель не найдена или недоступна через Router API. Проверьте название модели и доступность API ключа.";
       } else {
         try {
           // Пытаемся прочитать как JSON
