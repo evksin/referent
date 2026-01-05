@@ -180,15 +180,22 @@ export default function Home() {
           try {
             errorData = await response.json();
           } catch {
-            // Если не удалось распарсить JSON
+            // Если не удалось распарсить JSON, читаем как текст
+            try {
+              const errorText = await response.text();
+              errorData = { message: errorText || "Неизвестная ошибка" };
+            } catch {
+              errorData = {
+                message: `Ошибка ${response.status}: ${response.statusText}`,
+              };
+            }
           }
 
           const errorType = errorData.type || errorData.error || "UNKNOWN";
-          let errorMessage = "Произошла ошибка при генерации иллюстрации.";
-
-          if (errorData.message) {
-            errorMessage = errorData.message;
-          }
+          let errorMessage =
+            errorData.message ||
+            errorData.error ||
+            "Произошла ошибка при генерации иллюстрации.";
 
           setError({ message: errorMessage, type: errorType });
           setResult("");

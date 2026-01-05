@@ -132,6 +132,8 @@ export async function POST(request: NextRequest) {
 
     // Шаг 2: Генерируем изображение через Hugging Face
     // Используем модель Stable Diffusion через Hugging Face Inference API
+    console.log("Sending request to Hugging Face with prompt:", imagePrompt.substring(0, 100) + "...");
+    
     const huggingFaceResponse = await fetch(
       "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5",
       {
@@ -145,6 +147,11 @@ export async function POST(request: NextRequest) {
         }),
       }
     );
+
+    // Проверяем Content-Type ответа
+    const contentType = huggingFaceResponse.headers.get("content-type");
+    console.log("Hugging Face response status:", huggingFaceResponse.status);
+    console.log("Hugging Face response content-type:", contentType);
 
     if (!huggingFaceResponse.ok) {
       let errorMessage = `Ошибка Hugging Face API: ${huggingFaceResponse.statusText}`;
@@ -161,17 +168,34 @@ export async function POST(request: NextRequest) {
           "Модель Hugging Face загружается. Попробуйте через несколько секунд.";
       } else {
         try {
-          const errorData = await huggingFaceResponse.json();
-          if (errorData.error) {
-            errorMessage = `Ошибка Hugging Face: ${errorData.error}`;
+          // Пытаемся прочитать как JSON
+          const errorText = await huggingFaceResponse.text();
+          console.error("Hugging Face error response:", errorText);
+          
+          try {
+            const errorData = JSON.parse(errorText);
+            if (errorData.error) {
+              errorMessage = `Ошибка Hugging Face: ${errorData.error}`;
+            } else if (errorData.message) {
+              errorMessage = `Ошибка Hugging Face: ${errorData.message}`;
+            }
+          } catch {
+            // Если не JSON, используем текст как есть
+            if (errorText && errorText.length < 200) {
+              errorMessage = `Ошибка Hugging Face: ${errorText}`;
+            }
           }
-        } catch {
-          // Если не удалось распарсить JSON, используем стандартное сообщение
+        } catch (e) {
+          console.error("Error parsing Hugging Face error:", e);
         }
       }
 
       return NextResponse.json(
-        { error: errorMessage },
+        { 
+          error: errorMessage,
+          message: errorMessage,
+          type: "HUGGINGFACE_ERROR"
+        },
         {
           status:
             huggingFaceResponse.status >= 500 ? 502 : huggingFaceResponse.status,
@@ -179,23 +203,90 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Проверяем, что ответ - это изображение, а не JSON с ошибкой
+    if (contentType && contentType.includes("application/json")) {
+      // Это JSON, вероятно ошибка
+      try {
+        const errorData = await huggingFaceResponse.json();
+        console.error("Hugging Face returned JSON instead of image:", errorData);
+        
+        let errorMessage = "Не удалось сгенерировать изображение.";
+        if (errorData.error) {
+          errorMessage = `Ошибка Hugging Face: ${errorData.error}`;
+        } else if (errorData.message) {
+          errorMessage = `Ошибка Hugging Face: ${errorData.message}`;
+        }
+        
+        return NextResponse.json(
+          {
+            error: errorMessage,
+            message: errorMessage,
+            type: "IMAGE_GENERATION_ERROR",
+          },
+          { status: 500 }
+        );
+      } catch (e) {
+        console.error("Error parsing Hugging Face JSON response:", e);
+        return NextResponse.json(
+          {
+            error: "Неожиданный формат ответа от Hugging Face API.",
+            message: "Неожиданный формат ответа от Hugging Face API.",
+            type: "UNEXPECTED_RESPONSE",
+          },
+          { status: 500 }
+        );
+      }
+    }
+
     // Получаем изображение как blob
-    const imageBlob = await huggingFaceResponse.blob();
+    try {
+      const imageBlob = await huggingFaceResponse.blob();
+      
+      // Проверяем размер blob (должен быть больше 0)
+      if (imageBlob.size === 0) {
+        return NextResponse.json(
+          {
+            error: "Получено пустое изображение от Hugging Face.",
+            message: "Получено пустое изображение от Hugging Face.",
+            type: "EMPTY_IMAGE",
+          },
+          { status: 500 }
+        );
+      }
 
-    // Конвертируем blob в base64 для передачи клиенту
-    const arrayBuffer = await imageBlob.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const base64Image = buffer.toString("base64");
-    const imageUrl = `data:image/png;base64,${base64Image}`;
+      // Конвертируем blob в base64 для передачи клиенту
+      const arrayBuffer = await imageBlob.arrayBuffer();
+      const buffer = Buffer.from(arrayBuffer);
+      const base64Image = buffer.toString("base64");
+      const imageUrl = `data:image/png;base64,${base64Image}`;
+      
+      console.log("Image generated successfully, size:", imageBlob.size, "bytes");
 
-    return NextResponse.json({
-      imageUrl,
-      prompt: imagePrompt,
-    });
+      return NextResponse.json({
+        imageUrl,
+        prompt: imagePrompt,
+      });
+    } catch (blobError) {
+      console.error("Error processing image blob:", blobError);
+      return NextResponse.json(
+        {
+          error: "Ошибка при обработке изображения.",
+          message: "Ошибка при обработке изображения от Hugging Face.",
+          type: "IMAGE_PROCESSING_ERROR",
+        },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error("Illustration generation error:", error);
 
     if (error instanceof Error) {
+      console.error("Error details:", {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+      });
+      
       if (
         error.message.includes("fetch") ||
         error.message.includes("network")
@@ -215,7 +306,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         error: "UNKNOWN_ERROR",
-        message: "Произошла неизвестная ошибка при генерации иллюстрации.",
+        message: error instanceof Error 
+          ? `Произошла ошибка при генерации иллюстрации: ${error.message}`
+          : "Произошла неизвестная ошибка при генерации иллюстрации.",
         type: "UNKNOWN_ERROR",
       },
       { status: 500 }
