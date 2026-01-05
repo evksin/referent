@@ -338,33 +338,10 @@ export async function POST(request: NextRequest) {
     // AI Horde может возвращать изображение в base64 или как URL
     let imageUrl: string;
     
-    if (firstGeneration.img) {
-      // Если есть base64 изображение
-      imageUrl = `data:image/png;base64,${firstGeneration.img}`;
-    } else if (firstGeneration.url) {
-      // Если есть URL изображения, загружаем его и конвертируем в base64
-      try {
-        const imageResponse = await fetch(firstGeneration.url);
-        if (!imageResponse.ok) {
-          throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
-        }
-        const imageBlob = await imageResponse.blob();
-        const arrayBuffer = await imageBlob.arrayBuffer();
-        const buffer = Buffer.from(arrayBuffer);
-        const base64Image = buffer.toString("base64");
-        imageUrl = `data:image/png;base64,${base64Image}`;
-      } catch (fetchError) {
-        console.error("Error fetching image from URL:", fetchError);
-        return NextResponse.json(
-          {
-            error: "Ошибка при загрузке изображения по URL.",
-            message: "Не удалось загрузить изображение по URL от AI Horde.",
-            type: "IMAGE_FETCH_ERROR",
-          },
-          { status: 500 }
-        );
-      }
-    } else {
+    // Проверяем, что у нас есть данные изображения
+    const imageData = firstGeneration.img || firstGeneration.url;
+    
+    if (!imageData) {
       return NextResponse.json(
         {
           error: "Изображение не найдено в результате генерации.",
@@ -373,6 +350,46 @@ export async function POST(request: NextRequest) {
         },
         { status: 500 }
       );
+    }
+    
+    // Проверяем, является ли это URL (начинается с http:// или https://)
+    const isUrl = typeof imageData === 'string' && (imageData.startsWith('http://') || imageData.startsWith('https://'));
+    
+    if (isUrl) {
+      // Если это URL, загружаем изображение и конвертируем в base64
+      console.log("Fetching image from URL:", imageData);
+      try {
+        const imageResponse = await fetch(imageData);
+        if (!imageResponse.ok) {
+          throw new Error(`Failed to fetch image: ${imageResponse.statusText}`);
+        }
+        const imageBlob = await imageResponse.blob();
+        const arrayBuffer = await imageBlob.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const base64Image = buffer.toString("base64");
+        imageUrl = `data:image/png;base64,${base64Image}`;
+        console.log("Image converted to base64, size:", buffer.length, "bytes");
+      } catch (fetchError) {
+        console.error("Error fetching image from URL:", fetchError);
+        return NextResponse.json(
+          {
+            error: "Ошибка при загрузке изображения по URL.",
+            message: `Не удалось загрузить изображение по URL от AI Horde: ${fetchError instanceof Error ? fetchError.message : 'Unknown error'}`,
+            type: "IMAGE_FETCH_ERROR",
+          },
+          { status: 500 }
+        );
+      }
+    } else {
+      // Если это base64 строка (или уже data URI), используем напрямую
+      if (imageData.startsWith('data:')) {
+        // Уже data URI
+        imageUrl = imageData;
+      } else {
+        // Base64 строка без префикса
+        imageUrl = `data:image/png;base64,${imageData}`;
+      }
+      console.log("Using base64 image directly");
     }
 
     console.log("Image generated successfully via AI Horde");
