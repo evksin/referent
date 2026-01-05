@@ -135,11 +135,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Шаг 2: Генерируем изображение через Hugging Face
-    // Используем модель Stable Diffusion через Hugging Face Router API (новый endpoint)
+    // Используем стандартный Inference API (router API может быть недоступен)
     console.log("Sending request to Hugging Face with prompt:", imagePrompt.substring(0, 100) + "...");
     
-    const huggingFaceResponse = await fetch(
-      "https://router.huggingface.co/models/runwayml/stable-diffusion-v1-5",
+    // Пробуем сначала стандартный Inference API
+    let huggingFaceResponse = await fetch(
+      "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1",
       {
         method: "POST",
         headers: {
@@ -151,6 +152,26 @@ export async function POST(request: NextRequest) {
         }),
       }
     );
+
+    // Если модель загружается (503), ждем и повторяем запрос
+    if (huggingFaceResponse.status === 503) {
+      console.log("Model is loading, waiting 10 seconds...");
+      await new Promise(resolve => setTimeout(resolve, 10000));
+      
+      huggingFaceResponse = await fetch(
+        "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-2-1",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${huggingFaceApiKey}`,
+          },
+          body: JSON.stringify({
+            inputs: imagePrompt,
+          }),
+        }
+      );
+    }
 
     // Проверяем Content-Type ответа
     const contentType = huggingFaceResponse.headers.get("content-type");
@@ -194,6 +215,14 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Не возвращаем 404 от Hugging Face как 404 для нашего API
+      // Вместо этого возвращаем 500 с понятным сообщением
+      const httpStatus = huggingFaceResponse.status === 404 
+        ? 500  // 404 от Hugging Face = ошибка конфигурации, возвращаем 500
+        : huggingFaceResponse.status >= 500 
+        ? 502 
+        : 500; // Другие ошибки тоже возвращаем как 500
+
       return NextResponse.json(
         { 
           error: errorMessage,
@@ -201,8 +230,7 @@ export async function POST(request: NextRequest) {
           type: "HUGGINGFACE_ERROR"
         },
         {
-          status:
-            huggingFaceResponse.status >= 500 ? 502 : huggingFaceResponse.status,
+          status: httpStatus,
         }
       );
     }
