@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-type ActionType = "summary" | "theses" | "telegram" | null;
+type ActionType = "summary" | "theses" | "telegram" | "illustration" | null;
 
 export default function Home() {
   const [url, setUrl] = useState("");
@@ -11,6 +11,7 @@ export default function Home() {
   const [fileName, setFileName] = useState("");
   const [actionType, setActionType] = useState<ActionType>(null);
   const [result, setResult] = useState("");
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [processStatus, setProcessStatus] = useState<string>("");
@@ -27,6 +28,7 @@ export default function Home() {
     setFileName("");
     setActionType(null);
     setResult("");
+    setImageUrl(null);
     setError(null);
     setProcessStatus("");
     setCopied(false);
@@ -154,7 +156,67 @@ export default function Home() {
         );
       }
 
-      // Отправляем на обработку AI
+      // Для иллюстрации используем специальный API
+      if (type === "illustration") {
+        setProcessStatus("Создаю промпт для изображения...");
+
+        const response = await fetch("/api/generate-illustration", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            parsedData: {
+              title: parsedData.title,
+              content: parsedData.content,
+              date: parsedData.date,
+            },
+          }),
+        });
+
+        if (!response.ok) {
+          let errorData: { error?: string; message?: string; type?: string } =
+            {};
+          try {
+            errorData = await response.json();
+          } catch {
+            // Если не удалось распарсить JSON
+          }
+
+          const errorType = errorData.type || errorData.error || "UNKNOWN";
+          let errorMessage = "Произошла ошибка при генерации иллюстрации.";
+
+          if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+
+          setError({ message: errorMessage, type: errorType });
+          setResult("");
+          setImageUrl(null);
+          setProcessStatus("");
+          return;
+        }
+
+        const data = await response.json();
+
+        if (data.imageUrl) {
+          setImageUrl(data.imageUrl);
+          setResult(data.prompt || "");
+          setError(null);
+          setProcessStatus("");
+        } else {
+          setError({
+            message: "Не удалось получить изображение. Попробуйте еще раз.",
+            type: "IMAGE_GENERATION_ERROR",
+          });
+          setResult("");
+          setImageUrl(null);
+          setProcessStatus("");
+        }
+        return;
+      }
+
+      // Отправляем на обработку AI для других типов действий
       setProcessStatus("Обрабатываю с помощью AI...");
 
       const response = await fetch("/api/ai-process", {
@@ -352,7 +414,7 @@ export default function Home() {
         </div>
 
         {/* Кнопки действий */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4 mb-6 md:mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6 md:mb-8">
           <button
             onClick={() => handleAction("summary")}
             disabled={isLoading}
@@ -376,6 +438,14 @@ export default function Home() {
             className="w-full px-4 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
           >
             Пост для Telegram
+          </button>
+          <button
+            onClick={() => handleAction("illustration")}
+            disabled={isLoading}
+            title="Создать иллюстрацию на основе статьи"
+            className="w-full px-4 sm:px-6 py-2.5 sm:py-3 text-sm sm:text-base bg-orange-600 hover:bg-orange-700 text-white font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
+          >
+            Иллюстрация
           </button>
         </div>
 
@@ -438,6 +508,7 @@ export default function Home() {
               {actionType === "summary" && "О чем статья?"}
               {actionType === "theses" && "Тезисы"}
               {actionType === "telegram" && "Пост для Telegram"}
+              {actionType === "illustration" && "Иллюстрация"}
               {!actionType &&
                 (result
                   ? result.startsWith("Ошибка")
@@ -499,12 +570,33 @@ export default function Home() {
                   {actionType === "summary" && "Анализирую статью..."}
                   {actionType === "theses" && "Выделяю основные тезисы..."}
                   {actionType === "telegram" && "Создаю пост..."}
+                  {actionType === "illustration" && "Генерирую иллюстрацию..."}
                   {!actionType && "Обработка..."}
                 </p>
               </div>
-            ) : result && !error ? (
+            ) : (result || imageUrl) && !error ? (
               <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 sm:p-4 border border-gray-200 dark:border-gray-700 overflow-auto">
-                {actionType === "theses" || actionType === "telegram" ? (
+                {actionType === "illustration" && imageUrl ? (
+                  <div className="space-y-4">
+                    <div className="flex justify-center">
+                      <img
+                        src={imageUrl}
+                        alt="Сгенерированная иллюстрация"
+                        className="max-w-full h-auto rounded-lg shadow-md"
+                      />
+                    </div>
+                    {result && (
+                      <div className="mt-4 pt-4 border-t border-gray-300 dark:border-gray-600">
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                          Промпт для генерации:
+                        </p>
+                        <p className="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200 font-sans text-sm leading-relaxed">
+                          {result}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ) : actionType === "theses" || actionType === "telegram" ? (
                   <div className="whitespace-pre-wrap break-words text-gray-800 dark:text-gray-200 font-sans text-sm sm:text-base leading-relaxed">
                     {result}
                   </div>
