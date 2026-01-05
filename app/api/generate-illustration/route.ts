@@ -135,41 +135,88 @@ export async function POST(request: NextRequest) {
     }
 
     // Шаг 2: Генерируем изображение через Hugging Face
-    // Используем новый Router API (api-inference больше не поддерживается)
+    // Используем Router API (api-inference больше не поддерживается)
     console.log("Sending request to Hugging Face with prompt:", imagePrompt.substring(0, 100) + "...");
     
-    // Используем Router API с правильным форматом
-    let huggingFaceResponse = await fetch(
-      "https://router.huggingface.co/models/stabilityai/stable-diffusion-2-1",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${huggingFaceApiKey}`,
-        },
-        body: JSON.stringify({
-          inputs: imagePrompt,
-        }),
-      }
-    );
+    // Пробуем несколько моделей по очереди, если одна недоступна
+    const models = [
+      "runwayml/stable-diffusion-v1-5",
+      "stabilityai/stable-diffusion-2-1",
+      "CompVis/stable-diffusion-v1-4",
+    ];
+    
+    let huggingFaceResponse: Response | null = null;
+    let lastError: string = "";
+    
+    for (const model of models) {
+      try {
+        console.log(`Trying model: ${model}`);
+        huggingFaceResponse = await fetch(
+          `https://router.huggingface.co/models/${model}`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${huggingFaceApiKey}`,
+            },
+            body: JSON.stringify({
+              inputs: imagePrompt,
+            }),
+          }
+        );
 
-    // Если модель загружается (503), ждем и повторяем запрос
-    if (huggingFaceResponse.status === 503) {
-      console.log("Model is loading, waiting 10 seconds...");
-      await new Promise(resolve => setTimeout(resolve, 10000));
-      
-      huggingFaceResponse = await fetch(
-        "https://router.huggingface.co/models/stabilityai/stable-diffusion-2-1",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${huggingFaceApiKey}`,
-          },
-          body: JSON.stringify({
-            inputs: imagePrompt,
-          }),
+        // Если модель загружается (503), ждем и повторяем запрос
+        if (huggingFaceResponse.status === 503) {
+          console.log(`Model ${model} is loading, waiting 10 seconds...`);
+          await new Promise(resolve => setTimeout(resolve, 10000));
+          
+          huggingFaceResponse = await fetch(
+            `https://router.huggingface.co/models/${model}`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${huggingFaceApiKey}`,
+              },
+              body: JSON.stringify({
+                inputs: imagePrompt,
+              }),
+            }
+          );
         }
+
+        // Если запрос успешен, выходим из цикла
+        if (huggingFaceResponse.ok) {
+          console.log(`Successfully using model: ${model}`);
+          break;
+        }
+
+        // Если 404, пробуем следующую модель
+        if (huggingFaceResponse.status === 404) {
+          console.log(`Model ${model} not found, trying next...`);
+          const errorText = await huggingFaceResponse.text();
+          lastError = errorText;
+          continue;
+        }
+
+        // Для других ошибок тоже пробуем следующую модель
+        if (!huggingFaceResponse.ok) {
+          console.log(`Model ${model} returned error ${huggingFaceResponse.status}, trying next...`);
+          const errorText = await huggingFaceResponse.text();
+          lastError = errorText;
+          continue;
+        }
+      } catch (error) {
+        console.error(`Error with model ${model}:`, error);
+        lastError = error instanceof Error ? error.message : "Unknown error";
+        continue;
+      }
+    }
+
+    // Если все модели не сработали
+    if (!huggingFaceResponse || !huggingFaceResponse.ok) {
+      throw new Error(
+        `Не удалось использовать ни одну из моделей. Последняя ошибка: ${lastError || "Модели недоступны"}`
       );
     }
 
