@@ -1,7 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import pdfParse from "pdf-parse";
-import mammoth from "mammoth";
-import * as XLSX from "xlsx";
 
 const ALLOWED_EXTENSIONS = [
   ".doc",
@@ -68,6 +65,8 @@ export async function POST(request: NextRequest) {
           break;
 
         case ".pdf":
+          // Динамический импорт для совместимости с Vercel
+          const pdfParse = (await import("pdf-parse")).default;
           const pdfData = await pdfParse(buffer);
           content = pdfData.text;
           if (pdfData.info?.Title) {
@@ -79,6 +78,10 @@ export async function POST(request: NextRequest) {
           break;
 
         case ".docx":
+          // Динамический импорт для совместимости с Vercel
+          // @ts-ignore - mammoth не имеет типов
+          const mammoth = await import("mammoth");
+          // @ts-ignore
           const docxResult = await mammoth.extractRawText({ buffer });
           content = docxResult.value;
           if (docxResult.messages.length > 0) {
@@ -99,12 +102,15 @@ export async function POST(request: NextRequest) {
 
         case ".xls":
         case ".xlsx":
+          // Динамический импорт для совместимости с Vercel
+          // @ts-ignore - xlsx не имеет типов
+          const XLSX = await import("xlsx");
           const workbook = XLSX.read(buffer, { type: "buffer" });
           // Извлекаем текст из всех листов
           const sheets = workbook.SheetNames;
           const allText: string[] = [];
 
-          sheets.forEach((sheetName) => {
+          sheets.forEach((sheetName: string) => {
             const worksheet = workbook.Sheets[sheetName];
             const jsonData = XLSX.utils.sheet_to_json(worksheet, {
               header: 1,
