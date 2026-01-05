@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// Конфигурация для Next.js
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function POST(request: NextRequest) {
   try {
     const { parsedData } = await request.json();
