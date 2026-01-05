@@ -131,11 +131,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Шаг 2: Генерируем изображение через Hugging Face
-    // Используем модель Stable Diffusion через Hugging Face Inference API
+    // Используем модель Stable Diffusion через Hugging Face Router API (новый endpoint)
     console.log("Sending request to Hugging Face with prompt:", imagePrompt.substring(0, 100) + "...");
     
     const huggingFaceResponse = await fetch(
-      "https://api-inference.huggingface.co/models/runwayml/stable-diffusion-v1-5",
+      "https://router.huggingface.co/models/runwayml/stable-diffusion-v1-5",
       {
         method: "POST",
         headers: {
